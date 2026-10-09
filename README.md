@@ -153,14 +153,14 @@ The visual difference tells you this approval resolved after the server came bac
  ### On restart with an overdue session
 ```
 INFO rehydrate complete loaded=0 expired_on_startup=1
-``
+```
 The row is marked timeout. If you tap the stale button, you get "no longer active" in Telegram and nothing else happens.
 
  ### Pipeline retry with stable session ID
 Pipeline-lib's telegram.Client can now (optionally) provide a deterministic ID:
 ```sessionID := fmt.Sprintf("%s-%s-%s", cfg.Service, env, version) 
 // e.g. "myservice-staging-v1.2.3"
-``
+```
 Caller workflow:
  1. First POST /pipeline/approve with session_id=myservice-staging-v1.2.3 blocks.
  2. Server restarts; pipeline's HTTP call errors out.
