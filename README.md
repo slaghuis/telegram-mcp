@@ -138,6 +138,37 @@ Try:
  - **request_approval** with prompt="Deploy v1.2.3 to prod?", options="Deploy,Hold,Rollback", context="12 commits, all tests green" → See buttons on your phone, tap one, tool call completes.
  - **ask_question** with prompt="Which region?" → Reply to the Telegram message with text; tool call returns your text.
 
+ ## Rehydration Behaviour You'll See
+ ### On restart with 2 pending approvals
+```
+INFO rehydrate complete loaded=2 expired_on_startup=0
+INFO hub ready rehydrated=2 expired_on_startup=0
+INFO starting SSE + pipeline HTTP server listen=:8765
+```
+Both messages on your phone are still tappable. If you tap:
+```
+♻️ Answered post-restart: Deploy by @slaghuis
+```
+The visual difference tells you this approval resolved after the server came back up, so you know an agent might not have received the reply directly.
+ ### On restart with an overdue session
+```
+INFO rehydrate complete loaded=0 expired_on_startup=1
+``
+The row is marked timeout. If you tap the stale button, you get "no longer active" in Telegram and nothing else happens.
+
+ ### Pipeline retry with stable session ID
+Pipeline-lib's telegram.Client can now (optionally) provide a deterministic ID:
+```sessionID := fmt.Sprintf("%s-%s-%s", cfg.Service, env, version) 
+// e.g. "myservice-staging-v1.2.3"
+``
+Caller workflow:
+ 1. First POST /pipeline/approve with session_id=myservice-staging-v1.2.3 blocks.
+ 2. Server restarts; pipeline's HTTP call errors out.
+ 3. Pipeline retries the same POST. The in-memory session is gone, but the DB row exists as pending → new in-memory Session is created, joined by the retry. Same Telegram message, no duplicate.
+ 4. User taps. Both the original (dead) and retrying callers' DB row resolves.
+ 5. Alternatively, pipeline can GET /pipeline/approve/myservice-staging-v1.2.3 to poll without re-sending the message.
+I'll leave the pipeline-lib update to use stable IDs as a one-line change you can decide on. The server supports it either way.
+
  ## Operational Notes
  - **Reconnection safety**: If the server restarts mid-approval, the SQLite row survives but the in-memory `replyCh` doesn't. The agent's tool call will error with "session not found" from Telegram's side when you tap. Mitigation: agents should retry blocking calls with idempotency keys, or you can extend the hub to rehydrate pending sessions on startup and resolve them when callbacks arrive (left as an easy extension — load `store.LoadPending()` in `main.go` after `NewHub` and re-register them).
  - **Rate limits**: Telegram allows ~30 messages/sec per bot. Not a concern for human-in-loop workflows, but if an agent goes crazy with notify, add a token bucket.
