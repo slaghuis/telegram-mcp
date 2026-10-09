@@ -1,0 +1,10 @@
+listen: ":8765"
+
+telegram:
+  token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: 123456789           # from getUpdates
+  allowed_user_ids: [123456789] # security: only accept replies from these users
+  default_timeout_seconds: 1800
+
+storage:
+  sqlite_path: ./telegram-mcp.db
