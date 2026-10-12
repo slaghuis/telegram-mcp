@@ -66,7 +66,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
-	hub := session.NewHub(store)
+	hub := session.NewHub(store, logger)
 
 	ctxBoot, cancelBoot := context.WithTimeout(context.Background(), 10*time.Second)
 	loaded, expired, err := hub.Rehydrate(ctxBoot)
