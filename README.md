@@ -59,13 +59,19 @@ export TELEGRAM_BOT_TOKEN=123456:ABC...
 ```
 You should see:
 ```
-starting SSE server listen=:8765
+starting SSE + pipeline HTTP server listen=:8765
 ```
-Hit the health:
+Check the SSE endpoint (it only accepts `GET`, so `curl -I` returns `405`; the stream stays open, hence the timeout):
 ```
-curl -s http://localhost:8765/sse -I
+curl -s -N -m 2 -D - -o /dev/null http://localhost:8765/sse
 ```
 Should return `200 OK` with `Content-Type: text/event-stream`.
+
+For a quick health check that returns immediately:
+```
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/metrics
+```
+Should print `200`. Stop the server with Ctrl+C.
  ## Run as a Background Service (launchd)
 Create `~/Library/LaunchAgents/com.you.telegram-mcp.plist`:
 ```
