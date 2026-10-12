@@ -59,42 +59,72 @@ export TELEGRAM_BOT_TOKEN=123456:ABC...
 ```
 You should see:
 ```
-starting SSE server listen=:8765
+starting SSE + pipeline HTTP server listen=:8765
 ```
-Hit the health:
+Check the SSE endpoint (it only accepts `GET`, so `curl -I` returns `405`; the stream stays open, hence the timeout):
 ```
-curl -s http://localhost:8765/sse -I
+curl -s -N -m 2 -D - -o /dev/null http://localhost:8765/sse
 ```
 Should return `200 OK` with `Content-Type: text/event-stream`.
- ## Run as a Background Service (launchd)
-Create `~/Library/LaunchAgents/com.you.telegram-mcp.plist`:
+
+For a quick health check that returns immediately:
 ```
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/metrics
+```
+Should print `200`. Stop the server with Ctrl+C.
+ ## Run as a Background Service (launchd)
+Generate the plist **from the repo root** (`REPO="$PWD"` sets both the config path and `WorkingDirectory`). launchd does not expand `~` or `$HOME`, so the heredoc writes absolute paths. Replace `com.you` with your own reverse-DNS prefix; the file name must match the label.
+```
+LABEL=com.you.telegram-mcp
+REPO="$PWD"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+read -rs "TOKEN?Telegram bot token: "; echo   # zsh; in bash use: read -rsp "Telegram bot token: " TOKEN; echo
+
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.local/share"
+
+cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.you.telegram-mcp</string>
+  <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/you/.local/bin/telegram-mcp</string>
-    <string>-config</string><string>/Users/you/telegram-mcp/config.yaml</string>
+    <string>$HOME/.local/bin/telegram-mcp</string>
+    <string>-config</string><string>$REPO/config.yaml</string>
     <string>-transport</string><string>sse</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>TELEGRAM_BOT_TOKEN</key><string>123456:ABC...</string>
+    <key>TELEGRAM_BOT_TOKEN</key><string>$TOKEN</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/you/.local/share/telegram-mcp.log</string>
-  <key>StandardErrorPath</key><string>/Users/you/.local/share/telegram-mcp.err</string>
-  <key>WorkingDirectory</key><string>/Users/you/telegram-mcp</string>
+  <key>StandardOutPath</key><string>$HOME/.local/share/telegram-mcp.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.local/share/telegram-mcp.err</string>
+  <key>WorkingDirectory</key><string>$REPO</string>
 </dict>
 </plist>
+EOF
+
+unset TOKEN
+chmod 600 "$PLIST"
+plutil -lint "$PLIST"
+launchctl bootstrap gui/$(id -u) "$PLIST"
 ```
+Notes:
+- launchd will not create the log directory; if `~/.local/share` is missing the service fails silently.
+- The plist contains the bot token, hence `chmod 600`. Alternatively put the token in `config.yaml` and drop `EnvironmentVariables`.
+- `WorkingDirectory` matters if `storage.sqlite_path` in `config.yaml` is relative.
+
+Manage the service (with `KeepAlive`, killing the process just restarts it). launchd keeps its own copy of the job, so `kickstart` does **not** re-read the plist; after editing it, `bootout` and `bootstrap` again:
 ```
-launchctl load ~/Library/LaunchAgents/com.you.telegram-mcp.plist
+launchctl print gui/$(id -u)/com.you.telegram-mcp | head -20   # status
+launchctl kickstart -k gui/$(id -u)/com.you.telegram-mcp       # restart, e.g. after a rebuild
+launchctl bootout gui/$(id -u)/com.you.telegram-mcp            # stop and unload
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.you.telegram-mcp.plist   # load (re-reads the plist)
+tail -f ~/.local/share/telegram-mcp.err                         # logs
 ```
 
  ## Wiring Into Agents

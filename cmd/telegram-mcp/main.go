@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"log/slog"
@@ -122,9 +123,18 @@ func main() {
 		hub.StartPendingGaugeUpdater(ctx, 5*time.Second) 
 
     		logger.Info("starting SSE + pipeline HTTP server", "listen", cfg.Listen)
-    		if err := http.ListenAndServe(cfg.Listen, mux); err != nil {
-        		log.Fatal(err)
-    		}
+		httpServer := &http.Server{Addr: cfg.Listen, Handler: mux}
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if err := httpServer.Shutdown(shutdownCtx); err != nil {
+				logger.Warn("http shutdown", "err", err)
+			}
+		}()
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
 	default:
 		log.Fatalf("unknown transport %q", *mode)
 	}
